@@ -1,0 +1,12 @@
+# Binaries
+meetap
+meetap-darwin-*
+assistant
+
+# GoReleaser
+dist/
+checksums.txt
+THIRD_PARTY_LICENSES
+
+# whisper.cpp build cache
+.whisper-cpp/

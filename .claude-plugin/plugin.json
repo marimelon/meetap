@@ -1,0 +1,13 @@
+{
+  "name": "meetap",
+  "version": "0.1.0",
+  "description": "macOS system audio + microphone recorder with whisper.cpp transcription. No virtual audio devices required.",
+  "author": {
+    "name": "marimelon"
+  },
+  "repository": "https://github.com/marimelon/meetap",
+  "license": "MIT",
+  "keywords": ["recording", "transcription", "whisper", "macos", "coreaudio"],
+  "category": "productivity",
+  "skills": "./skills/"
+}

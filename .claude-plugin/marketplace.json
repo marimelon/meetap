@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "meetap-marketplace",
+  "description": "macOS meeting recorder with system audio capture and whisper.cpp transcription",
+  "version": "0.1.0",
+  "owner": {
+    "name": "marimelon"
+  },
+  "plugins": [
+    {
+      "name": "meetap",
+      "description": "Record system audio + microphone and transcribe with whisper.cpp. Uses CoreAudio Tap API - no virtual audio devices needed.",
+      "source": "./",
+      "category": "productivity",
+      "version": "0.1.0",
+      "keywords": ["recording", "transcription", "whisper", "meeting", "macos"],
+      "strict": true,
+      "skills": ["./skills/record"]
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+version: 2
+
+before:
+  hooks:
+    - make libs
+    - make licenses
+
+builds:
+  - id: meetap
+    binary: meetap
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - darwin
+    goarch:
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/marimelon/meetap/cmd.Version={{.Version}}
+      - -X github.com/marimelon/meetap/cmd.Commit={{.ShortCommit}}
+      - -X github.com/marimelon/meetap/cmd.BuildDate={{.Date}}
+
+archives:
+  - ids:
+      - meetap
+    name_template: "{{ .ProjectName }}-{{ .Os }}-{{ .Arch }}"
+    formats:
+      - binary
+
+checksum:
+  name_template: "checksums.txt"
+
+release:
+  github:
+    owner: marimelon
+    name: meetap
+  draft: false
+  prerelease: auto
+  extra_files:
+    - glob: THIRD_PARTY_LICENSES
+
+homebrew_casks:
+  - name: meetap
+    repository:
+      owner: marimelon
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    url:
+      verified: github.com/marimelon/meetap
+    homepage: "https://github.com/marimelon/meetap"
+    description: "macOS system audio + mic recorder with whisper.cpp transcription"
+    caveats: |
+      whisper モデルの初回ダウンロードが必要です。
+      詳細: https://github.com/marimelon/meetap#whisper-モデルのセットアップ
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
