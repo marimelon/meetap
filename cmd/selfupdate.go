@@ -76,27 +76,26 @@ var selfUpdateCmd = &cobra.Command{
 
 		tmpFile := exe + ".new"
 		if err := downloadAsset(targetAsset, token, tmpFile); err != nil {
-			os.Remove(tmpFile)
+			_ = os.Remove(tmpFile)
 			log.Fatal("ダウンロードエラー:", err)
 		}
 
 		if err := os.Chmod(tmpFile, 0755); err != nil {
-			os.Remove(tmpFile)
+			_ = os.Remove(tmpFile)
 			log.Fatal(err)
 		}
 
 		// アトミックに置き換え
 		oldFile := exe + ".old"
 		if err := os.Rename(exe, oldFile); err != nil {
-			os.Remove(tmpFile)
+			_ = os.Remove(tmpFile)
 			log.Fatal("バイナリ置き換えエラー:", err)
 		}
 		if err := os.Rename(tmpFile, exe); err != nil {
-			// ロールバック
-			os.Rename(oldFile, exe)
+			_ = os.Rename(oldFile, exe)
 			log.Fatal("バイナリ置き換えエラー:", err)
 		}
-		os.Remove(oldFile)
+		_ = os.Remove(oldFile)
 
 		fmt.Printf("Updated: %s -> %s\n", Version, release.TagName)
 	},
@@ -142,7 +141,7 @@ func fetchLatestRelease(token string) (*ghRelease, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
@@ -170,7 +169,7 @@ func downloadAsset(asset *ghAsset, token, destPath string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
@@ -181,7 +180,7 @@ func downloadAsset(asset *ghAsset, token, destPath string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	written, err := io.Copy(f, resp.Body)
 	if err != nil {

@@ -20,7 +20,10 @@ var stopCmd = &cobra.Command{
 		}
 
 		var pid int
-		fmt.Sscanf(string(data), "%d", &pid)
+		if _, err := fmt.Sscanf(string(data), "%d", &pid); err != nil {
+			cleanup()
+			log.Fatal("PIDファイルの解析エラー:", err)
+		}
 
 		process, err := os.FindProcess(pid)
 		if err != nil {
@@ -33,7 +36,7 @@ var stopCmd = &cobra.Command{
 			log.Fatal("停止シグナル送信エラー:", err)
 		}
 
-		process.Wait()
+		_, _ = process.Wait()
 
 		if stateData, err := os.ReadFile(stateFile); err == nil {
 			var state recordState

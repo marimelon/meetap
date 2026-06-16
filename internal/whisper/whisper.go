@@ -2,6 +2,7 @@ package whisper
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -28,7 +29,7 @@ func Transcribe(wavPath string, opts TranscribeOptions) ([]Segment, error) {
 	if err != nil {
 		return nil, fmt.Errorf("model load: %w", err)
 	}
-	defer model.Close()
+	defer func() { _ = model.Close() }()
 
 	ctx, err := model.NewContext()
 	if err != nil {
@@ -58,7 +59,7 @@ func Transcribe(wavPath string, opts TranscribeOptions) ([]Segment, error) {
 	var segments []Segment
 	for {
 		seg, err := ctx.NextSegment()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
@@ -85,7 +86,7 @@ func loadWAVAsFloat32(path string) ([]float32, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	// WAV ヘッダーをパース
 	var riffHeader [12]byte
@@ -102,7 +103,7 @@ func loadWAVAsFloat32(path string) ([]float32, error) {
 		var chunkID [4]byte
 		var chunkSize uint32
 		if err := binary.Read(f, binary.LittleEndian, &chunkID); err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			return nil, err
@@ -123,7 +124,9 @@ func loadWAVAsFloat32(path string) ([]float32, error) {
 			}
 			// 残りのfmtチャンクデータをスキップ
 			if chunkSize > 16 {
-				f.Seek(int64(chunkSize-16), io.SeekCurrent)
+				if _, err := f.Seek(int64(chunkSize-16), io.SeekCurrent); err != nil {
+					return nil, fmt.Errorf("seek fmt chunk: %w", err)
+				}
 			}
 
 		case "data":
@@ -165,7 +168,9 @@ func loadWAVAsFloat32(path string) ([]float32, error) {
 			return resampled, nil
 
 		default:
-			f.Seek(int64(chunkSize), io.SeekCurrent)
+			if _, err := f.Seek(int64(chunkSize), io.SeekCurrent); err != nil {
+				return nil, fmt.Errorf("seek chunk: %w", err)
+			}
 		}
 	}
 

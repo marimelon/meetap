@@ -1,0 +1,17 @@
+version: "2"
+run:
+  build-tags:
+    - cgo
+linters:
+  default: standard
+  enable:
+    - errorlint
+    - copyloopvar
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+  exclusions:
+    paths:
+      - .whisper-cpp
+      - dist

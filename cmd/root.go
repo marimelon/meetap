@@ -45,8 +45,8 @@ func getOutputDir() string {
 }
 
 func cleanup() {
-	os.Remove(pidFile)
-	os.Remove(stateFile)
+	_ = os.Remove(pidFile)
+	_ = os.Remove(stateFile)
 }
 
 func formatSize(b int64) string {

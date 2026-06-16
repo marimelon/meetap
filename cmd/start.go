@@ -173,7 +173,7 @@ func setupRecordState() recordState {
 	}
 
 	stateJSON, _ := json.Marshal(state)
-	os.WriteFile(stateFile, stateJSON, 0644)
+	_ = os.WriteFile(stateFile, stateJSON, 0644)
 
 	return state
 }
