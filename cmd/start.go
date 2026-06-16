@@ -142,23 +142,17 @@ func runForeground() {
 	state := setupRecordState()
 	defer cleanup()
 
-	tap, ctx, sysDev, micDev, sysRec, micRec := setupCaptureDevices()
-	defer tap.Destroy()
-	defer func() {
-		_ = ctx.Uninit()
-		ctx.Free()
-	}()
+	res := setupCaptureDevices()
+	defer res.cleanup()
 
-	startRecording(sysDev, micDev, state)
+	startRecording(res.sysDev, res.micDev, state)
 	waitForStop()
 
 	if !quiet {
 		fmt.Println("\n録音停止中...")
 	}
-	sysDev.Uninit()
-	micDev.Uninit()
 
-	saveRecordings(state, sysRec, micRec)
+	saveRecordings(state, res.sysRec, res.micRec)
 }
 
 func setupRecordState() recordState {
@@ -181,7 +175,32 @@ func setupRecordState() recordState {
 	return state
 }
 
-func setupCaptureDevices() (*coreaudio.Tap, *malgo.AllocatedContext, *malgo.Device, *malgo.Device, *audio.Recorder, *audio.Recorder) {
+type captureResources struct {
+	tap    *coreaudio.Tap
+	ctx    *malgo.AllocatedContext
+	sysDev *malgo.Device
+	micDev *malgo.Device
+	sysRec *audio.Recorder
+	micRec *audio.Recorder
+}
+
+func (r *captureResources) cleanup() {
+	if r.sysDev != nil {
+		r.sysDev.Uninit()
+	}
+	if r.micDev != nil {
+		r.micDev.Uninit()
+	}
+	if r.tap != nil {
+		r.tap.Destroy()
+	}
+	if r.ctx != nil {
+		_ = r.ctx.Uninit()
+		r.ctx.Free()
+	}
+}
+
+func setupCaptureDevices() *captureResources {
 	format := malgo.FormatS16
 	rate := uint32(sampleRate)
 
@@ -201,13 +220,7 @@ func setupCaptureDevices() (*coreaudio.Tap, *malgo.AllocatedContext, *malgo.Devi
 		log.Fatal(err)
 	}
 
-	var tapDeviceID *malgo.DeviceID
-	for _, d := range captureDevices {
-		if d.Name() == coreaudio.DeviceName {
-			id := d.ID
-			tapDeviceID = &id
-		}
-	}
+	tapDeviceID := findDeviceID(captureDevices, coreaudio.DeviceName)
 	if tapDeviceID == nil {
 		log.Fatal("CoreAudio Tap デバイスが見つかりません")
 	}
@@ -229,14 +242,7 @@ func setupCaptureDevices() (*coreaudio.Tap, *malgo.AllocatedContext, *malgo.Devi
 	micRec := &audio.Recorder{}
 	micConfig := malgo.DefaultDeviceConfig(malgo.Capture)
 	if micDeviceName != "" {
-		var micID *malgo.DeviceID
-		for _, d := range captureDevices {
-			if d.Name() == micDeviceName {
-				id := d.ID
-				micID = &id
-				break
-			}
-		}
+		micID := findDeviceID(captureDevices, micDeviceName)
 		if micID == nil {
 			var names []string
 			for _, d := range captureDevices {
@@ -257,7 +263,21 @@ func setupCaptureDevices() (*coreaudio.Tap, *malgo.AllocatedContext, *malgo.Devi
 		log.Fatal("マイクデバイス初期化エラー:", err)
 	}
 
-	return tap, ctx, sysDevice, micDev, sysRec, micRec
+	return &captureResources{
+		tap: tap, ctx: ctx,
+		sysDev: sysDevice, micDev: micDev,
+		sysRec: sysRec, micRec: micRec,
+	}
+}
+
+func findDeviceID(devices []malgo.DeviceInfo, name string) *malgo.DeviceID {
+	for _, d := range devices {
+		if d.Name() == name {
+			id := d.ID
+			return &id
+		}
+	}
+	return nil
 }
 
 func startRecording(sysDevice, micDev *malgo.Device, state recordState) {

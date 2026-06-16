@@ -1,7 +1,6 @@
 package audio
 
 import (
-	"fmt"
 	"math"
 )
 
@@ -37,8 +36,6 @@ func MixStereoAndMono(stereoData, monoData []byte) []byte {
 	if micRMS > 0 {
 		micGain = targetRMS / micRMS
 	}
-
-	fmt.Printf("mix: sysRMS=%.0f micRMS=%.0f sysGain=%.2f micGain=%.2f\n", sysRMS, micRMS, sysGain, micGain)
 
 	out := make([]int16, n)
 	for i := range n {

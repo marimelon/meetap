@@ -114,14 +114,13 @@ func loadWAVAsFloat32(path string) ([]float32, error) {
 		switch string(chunkID[:]) {
 		case "fmt ":
 			var audioFormat uint16
-			binary.Read(f, binary.LittleEndian, &audioFormat)
-			binary.Read(f, binary.LittleEndian, &channels)
-			binary.Read(f, binary.LittleEndian, &sampleRate)
 			var byteRate uint32
 			var blockAlign uint16
-			binary.Read(f, binary.LittleEndian, &byteRate)
-			binary.Read(f, binary.LittleEndian, &blockAlign)
-			binary.Read(f, binary.LittleEndian, &bitsPerSample)
+			for _, ptr := range []any{&audioFormat, &channels, &sampleRate, &byteRate, &blockAlign, &bitsPerSample} {
+				if err := binary.Read(f, binary.LittleEndian, ptr); err != nil {
+					return nil, fmt.Errorf("read fmt chunk: %w", err)
+				}
+			}
 			// 残りのfmtチャンクデータをスキップ
 			if chunkSize > 16 {
 				f.Seek(int64(chunkSize-16), io.SeekCurrent)
@@ -150,29 +149,20 @@ func loadWAVAsFloat32(path string) ([]float32, error) {
 				raw = mono
 			}
 
-			// ダウンサンプル (48kHz → 16kHz = 1/3)
-			if sampleRate == 48000 {
-				resampled := make([]float32, len(raw)/3)
-				for i := range resampled {
-					resampled[i] = raw[i*3]
-				}
-				return resampled, nil
-			} else if sampleRate == 16000 {
+			// リサンプル → 16kHz
+			if sampleRate == 16000 {
 				return raw, nil
-			} else if sampleRate == 44100 {
-				// 簡易リサンプル 44100 → 16000
-				ratio := float64(sampleRate) / 16000.0
-				outLen := int(float64(len(raw)) / ratio)
-				resampled := make([]float32, outLen)
-				for i := range resampled {
-					srcIdx := int(float64(i) * ratio)
-					if srcIdx < len(raw) {
-						resampled[i] = raw[srcIdx]
-					}
-				}
-				return resampled, nil
 			}
-			return raw, nil
+			ratio := float64(sampleRate) / 16000.0
+			outLen := int(float64(len(raw)) / ratio)
+			resampled := make([]float32, outLen)
+			for i := range resampled {
+				srcIdx := int(float64(i) * ratio)
+				if srcIdx < len(raw) {
+					resampled[i] = raw[srcIdx]
+				}
+			}
+			return resampled, nil
 
 		default:
 			f.Seek(int64(chunkSize), io.SeekCurrent)

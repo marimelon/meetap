@@ -27,10 +27,6 @@ func CreateGlobalTap() (*Tap, error) {
 		aggregateDeviceID: result.aggregateDeviceID,
 	}
 
-	var buf [256]C.char
-	C.getDeviceName(result.aggregateDeviceID, &buf[0], 256)
-	fmt.Printf("Tap aggregate device: %s (ID: %d)\n", C.GoString(&buf[0]), result.aggregateDeviceID)
-
 	return tap, nil
 }
 
