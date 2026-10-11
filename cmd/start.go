@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -141,17 +142,37 @@ func runForeground() {
 
 	state := setupRecordState()
 	defer cleanup()
+	// log.Fatal は defer を実行しないため、PID ファイルが残らないよう失敗時は明示的に片付ける
+	fail := func(err error) {
+		cleanup()
+		_ = os.Remove(state.SystemFile)
+		_ = os.Remove(state.MicFile)
+		log.Fatal(err)
+	}
 
-	res := setupCaptureDevices()
+	res, err := setupCaptureDevices(state)
+	if err != nil {
+		fail(err)
+	}
 	defer res.cleanup()
 
-	startRecording(res.sysDev, res.micDev, state)
+	if err := startRecording(res.sysDev, res.micDev, state); err != nil {
+		res.cleanup()
+		fail(err)
+	}
 	waitForStop()
 
 	if !quiet {
 		fmt.Println("\n録音停止中...")
 	}
 
+	// 録音ファイルを閉じた後にサンプルが届かないよう、先にデバイスを止める
+	if err := res.sysDev.Stop(); err != nil {
+		fmt.Fprintln(os.Stderr, "システム音声停止エラー:", err)
+	}
+	if err := res.micDev.Stop(); err != nil {
+		fmt.Fprintln(os.Stderr, "マイク停止エラー:", err)
+	}
 	saveRecordings(state, res.sysRec, res.micRec)
 }
 
@@ -194,6 +215,13 @@ func (r *captureResources) cleanup() {
 	if r.micDev != nil {
 		r.micDev.Uninit()
 	}
+	// 通常は saveRecordings で閉じ済み。Close は 2 回目以降は何もしない
+	if r.sysRec != nil {
+		_ = r.sysRec.Close()
+	}
+	if r.micRec != nil {
+		_ = r.micRec.Close()
+	}
 	if r.tap != nil {
 		r.tap.Destroy()
 	}
@@ -203,46 +231,57 @@ func (r *captureResources) cleanup() {
 	}
 }
 
-func setupCaptureDevices() *captureResources {
+func setupCaptureDevices(state recordState) (_ *captureResources, retErr error) {
 	format := malgo.FormatS16
 	rate := uint32(sampleRate)
+	sizeInBytes := uint32(malgo.SampleSizeInBytes(format))
+
+	res := &captureResources{}
+	defer func() {
+		if retErr != nil {
+			res.cleanup()
+		}
+	}()
 
 	tap, err := coreaudio.CreateGlobalTap()
 	if err != nil {
-		log.Fatal("Tap作成エラー:", err)
+		return nil, fmt.Errorf("システム音声 Tap 作成エラー: %w", err)
 	}
+	res.tap = tap
 
 	ctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, nil)
 	if err != nil {
-		tap.Destroy()
-		log.Fatal(err)
+		return nil, err
 	}
+	res.ctx = ctx
 
 	captureDevices, err := ctx.Devices(malgo.Capture)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
 	tapDeviceID := findDeviceID(captureDevices, coreaudio.DeviceName)
 	if tapDeviceID == nil {
-		log.Fatal("CoreAudio Tap デバイスが見つかりません")
+		return nil, errors.New("CoreAudio Tap デバイスが見つかりません")
 	}
 
 	// システム音声 (ステレオ)
-	sysRec := &audio.Recorder{}
+	res.sysRec, err = audio.NewRecorder(state.SystemFile, rate, 2, sizeInBytes)
+	if err != nil {
+		return nil, fmt.Errorf("system.wav 作成エラー: %w", err)
+	}
 	sysConfig := malgo.DefaultDeviceConfig(malgo.Capture)
 	sysConfig.Capture.DeviceID = tapDeviceID.Pointer()
 	sysConfig.Capture.Format = format
 	sysConfig.Capture.Channels = 2
 	sysConfig.SampleRate = rate
 
-	sysDevice, err := malgo.InitDevice(ctx.Context, sysConfig, malgo.DeviceCallbacks{Data: sysRec.OnData})
+	res.sysDev, err = malgo.InitDevice(ctx.Context, sysConfig, malgo.DeviceCallbacks{Data: res.sysRec.OnData})
 	if err != nil {
-		log.Fatal("システム音声デバイス初期化エラー:", err)
+		return nil, fmt.Errorf("システム音声デバイス初期化エラー: %w", err)
 	}
 
 	// マイク (モノラル)
-	micRec := &audio.Recorder{}
 	micConfig := malgo.DefaultDeviceConfig(malgo.Capture)
 	if micDeviceName != "" {
 		micID := findDeviceID(captureDevices, micDeviceName)
@@ -253,7 +292,7 @@ func setupCaptureDevices() *captureResources {
 					names = append(names, d.Name())
 				}
 			}
-			log.Fatalf("マイクデバイスが見つかりません: %s\n利用可能: %v", micDeviceName, names)
+			return nil, fmt.Errorf("マイクデバイスが見つかりません: %s\n利用可能: %v", micDeviceName, names)
 		}
 		micConfig.Capture.DeviceID = micID.Pointer()
 	}
@@ -261,16 +300,16 @@ func setupCaptureDevices() *captureResources {
 	micConfig.Capture.Channels = 1
 	micConfig.SampleRate = rate
 
-	micDev, err := malgo.InitDevice(ctx.Context, micConfig, malgo.DeviceCallbacks{Data: micRec.OnData})
+	res.micRec, err = audio.NewRecorder(state.MicFile, rate, 1, sizeInBytes)
 	if err != nil {
-		log.Fatal("マイクデバイス初期化エラー:", err)
+		return nil, fmt.Errorf("mic.wav 作成エラー: %w", err)
+	}
+	res.micDev, err = malgo.InitDevice(ctx.Context, micConfig, malgo.DeviceCallbacks{Data: res.micRec.OnData})
+	if err != nil {
+		return nil, fmt.Errorf("マイクデバイス初期化エラー: %w", err)
 	}
 
-	return &captureResources{
-		tap: tap, ctx: ctx,
-		sysDev: sysDevice, micDev: micDev,
-		sysRec: sysRec, micRec: micRec,
-	}
+	return res, nil
 }
 
 func findDeviceID(devices []malgo.DeviceInfo, name string) *malgo.DeviceID {
@@ -283,12 +322,12 @@ func findDeviceID(devices []malgo.DeviceInfo, name string) *malgo.DeviceID {
 	return nil
 }
 
-func startRecording(sysDevice, micDev *malgo.Device, state recordState) {
+func startRecording(sysDevice, micDev *malgo.Device, state recordState) error {
 	if err := sysDevice.Start(); err != nil {
-		log.Fatal("システム音声開始エラー:", err)
+		return fmt.Errorf("システム音声開始エラー: %w", err)
 	}
 	if err := micDev.Start(); err != nil {
-		log.Fatal("マイク開始エラー:", err)
+		return fmt.Errorf("マイク開始エラー: %w", err)
 	}
 
 	if !quiet {
@@ -296,6 +335,7 @@ func startRecording(sysDevice, micDev *malgo.Device, state recordState) {
 		fmt.Printf("  system: %s\n", state.SystemFile)
 		fmt.Printf("  mic:    %s\n", state.MicFile)
 	}
+	return nil
 }
 
 func waitForStop() {
@@ -305,26 +345,27 @@ func waitForStop() {
 }
 
 func saveRecordings(state recordState, sysRec, micRec *audio.Recorder) {
-	sysData := sysRec.Bytes()
-	micData := micRec.Bytes()
-	sizeInBytes := uint32(malgo.SampleSizeInBytes(malgo.FormatS16))
-
-	if err := audio.WriteWAV(state.SystemFile, sysData, uint32(sampleRate), 2, sizeInBytes); err != nil {
-		fmt.Fprintln(os.Stderr, "system.wav 保存エラー:", err)
+	sysErr := sysRec.Close()
+	if sysErr != nil {
+		fmt.Fprintln(os.Stderr, "system.wav 保存エラー:", sysErr)
 	} else if !quiet {
-		fmt.Printf("saved: %s (%d bytes)\n", state.SystemFile, len(sysData))
+		fmt.Printf("saved: %s (%d bytes)\n", state.SystemFile, sysRec.Size())
 	}
 
-	if err := audio.WriteWAV(state.MicFile, micData, uint32(sampleRate), 1, sizeInBytes); err != nil {
-		fmt.Fprintln(os.Stderr, "mic.wav 保存エラー:", err)
+	micErr := micRec.Close()
+	if micErr != nil {
+		fmt.Fprintln(os.Stderr, "mic.wav 保存エラー:", micErr)
 	} else if !quiet {
-		fmt.Printf("saved: %s (%d bytes)\n", state.MicFile, len(micData))
+		fmt.Printf("saved: %s (%d bytes)\n", state.MicFile, micRec.Size())
 	}
 
-	mixedData := audio.MixStereoAndMono(sysData, micData)
-	if err := audio.WriteWAV(state.MixedFile, mixedData, uint32(sampleRate), 1, sizeInBytes); err != nil {
+	if sysErr != nil || micErr != nil {
+		return
+	}
+
+	if err := audio.MixWAVFiles(state.SystemFile, state.MicFile, state.MixedFile, uint32(sampleRate)); err != nil {
 		fmt.Fprintln(os.Stderr, "mixed.wav 保存エラー:", err)
 	} else if !quiet {
-		fmt.Printf("saved: %s (%d bytes)\n", state.MixedFile, len(mixedData))
+		fmt.Printf("saved: %s\n", state.MixedFile)
 	}
 }
