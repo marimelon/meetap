@@ -45,10 +45,8 @@ homebrew_casks:
       owner: marimelon
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    url:
-      verified: github.com/marimelon/meetap
     homepage: "https://github.com/marimelon/meetap"
-    description: "macOS system audio + mic recorder with whisper.cpp transcription"
+    description: "System audio + mic recorder with whisper.cpp transcription"
     caveats: |
       whisper モデルの初回ダウンロードが必要です。
       詳細: https://github.com/marimelon/meetap#whisper-モデルのセットアップ
